@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CI Failure Triager</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1c1c1a;--mut:#6b6b66;--card:#fff;--bd:#e3e2dc;--ac:#2a6f6b;--warn:#c2410c;--hl:#fde68a}
+@media(prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe6;--mut:#9a9992;--card:#1f1f1c;--bd:#33332f;--ac:#6cc2bc;--warn:#fb923c;--hl:#5a4a12}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:24px 16px 64px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}
+.sub{color:var(--mut);margin:0 0 16px}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+.banner{background:var(--warn);color:#fff;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:13.5px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--bd)}th:first-child,td:first-child{text-align:left}th{color:var(--mut)}
+textarea{width:100%;height:150px;font:12px ui-monospace,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px}
+button,select{font:inherit;padding:5px 10px;background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;cursor:pointer}
+pre{font:12px/1.45 ui-monospace,monospace;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px}
+.hl{background:var(--hl)}.tag{display:inline-block;padding:0 8px;border-radius:99px;border:1px solid var(--bd);font-size:12px}
+tr.run{cursor:pointer}.note{font-size:12.5px;color:var(--mut)}.ok{color:var(--ac)}.bad{color:var(--warn)}
+@media(max-width:600px){.hide-s{display:none}}
+</style></head><body><main>
+<h1>CI Failure Triager</h1>
+<p class="sub">Is this red build a flaky test, a dependency problem, infrastructure, or a real bug? And which lines prove it?</p>
+<div class="banner">Evaluated on synthetic GitHub-Actions-style logs with planted labels, not on real GHALogs. See the results below for what that does and doesn't show.</div>
+<h2>Try it on a log <span class="note">runs in your browser; same rules as the Python pipeline</span></h2>
+<div class="card"><textarea id="log" placeholder="Paste a failed job's log here…"></textarea>
+<p><button id="go">Triage</button> <button id="ex">Load example</button></p><div id="out"></div></div>
+<h2>Results <span class="note">classifiers trained or written against seen families</span></h2>
+<div class="card"><table id="res"></table><p class="note" id="rn"></p></div>
+<h2>Sample runs <span class="note">click to see the evidence</span></h2>
+<div class="card"><table id="runs"></table><div id="det"></div></div>
+</main>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById('data').textContent),$=id=>document.getElementById(id),pc=x=>(x*100).toFixed(1)+'%';
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const RULES=D.rules.map(r=>({...r,rx:new RegExp(r.pattern,'i')}));
+const TS=/^\d{4}-\d\d-\d\dT[\d:.]+Z /,ERR=/##\[error\]|\bERROR\b|\bFAIL(ED)?\b|\bfatal\b|exception|panic|exit code [1-9]/i,BEN=/npm WARN|deprecated|PASSED|PASS |passed|\bok\b|0 failed|0 errors|skipp|retrying download \(\d\/\d\)$|::debug::/i;
+const LABELS=['flaky_test','dependency','infrastructure','real_bug'];
+function classify(lines,k=3){const by={};lines.forEach((raw,i)=>{const ln=raw.replace(TS,'').trimEnd();if(BEN.test(ln)&&!ln.startsWith('##[error]'))return;
+ for(const r of RULES)if(r.rx.test(ln)){(by[r.label]=by[r.label]||{});if(!(r.name in by[r.label]))by[r.label][r.name]=[r.w,i];}});
+ const sc={};LABELS.forEach(l=>{const ws=Object.values(by[l]||{}).map(x=>x[0]).sort((a,b)=>b-a);sc[l]=ws.length?ws[0]+0.15*Math.min(2,ws.length-1):0;});
+ const tot=LABELS.reduce((a,l)=>a+sc[l],0);
+ if(!tot){const e=[];lines.forEach((l,i)=>{if(ERR.test(l.replace(TS,'')))e.push(i);});return{label:'real_bug',conf:0,matched:false,ev:e.slice(-k).map(i=>({i,rule:'generic error'}))};}
+ const label=LABELS.reduce((a,l)=>sc[l]>sc[a]?l:a,LABELS[0]);
+ const ev=Object.entries(by[label]).map(([n,[w,i]])=>({w,i,rule:n})).sort((a,b)=>b.w-a.w).slice(0,k).sort((a,b)=>a.i-b.i);
+ return{label,conf:sc[label]/tot,matched:true,ev};}
+$('go').onclick=()=>{const lines=$('log').value.split('\n');if(!$('log').value.trim()){$('out').textContent='Paste a log first.';return;}
+ const c=classify(lines);const ev=new Set(c.ev.map(e=>e.i));
+ $('out').innerHTML=`<p><span class="tag">${c.label}</span> ${c.matched?'rule confidence '+pc(c.conf):'<span class="bad">no signature matched; showing the last error-looking lines, label is a fallback guess</span>'}</p>`+
+  c.ev.map(e=>`<pre><span class="hl">${esc(lines[e.i].replace(TS,''))}</span>\n<span class="note">line ${e.i+1} · rule: ${esc(e.rule)}</span></pre>`).join('');};
+$('ex').onclick=()=>{$('log').value=`2025-03-01T12:00:01.1Z ##[group]Run npm ci\n2025-03-01T12:00:03.4Z npm WARN deprecated inflight@1.0.6: not supported\n2025-03-01T12:00:09.0Z npm ERR! code E404\n2025-03-01T12:00:09.0Z npm ERR! 404 Not Found - GET https://registry.npmjs.org/@acme/core - Not found\n2025-03-01T12:00:09.1Z ##[error]Process completed with exit code 1.`;$('go').click();};
+const names=Object.keys(D.suites);let h='<tr><th>Test set</th><th>Method</th><th>Accuracy</th><th>Macro-F1</th><th class="hide-s">Evidence hit</th></tr>';
+for(const n of names)for(const [m,v] of Object.entries(D.suites[n]))h+=`<tr><td>${n}</td><td>${m}</td><td>${pc(v.accuracy)}</td><td>${v.macro_f1.toFixed(3)}</td><td class="hide-s">${pc(v.evidence_hit)}</td></tr>`;
+$('res').innerHTML=h;
+$('rn').innerHTML=`ML = TF-IDF + logistic regression on the error window, trained on ${D.train_runs} runs from the <i>seen</i> signature families only. "Novel" test runs use failure signatures the ML never saw. The rules were hand-written by the same author as the generator, so the rules-vs-ML gap flatters the rules; the ML collapse on novel families is the point (that is the case for an LLM fallback). Ceiling: ~18% of runs carry no signature at all, so accuracy tops out near ${pc(D.ceiling['all families'])}. "Evidence hit" = a returned line is the planted proof line. Gemini escalation is implemented but not evaluated (no API key at build time).`;
+let r='<tr><th>Run</th><th>Truth</th><th>Predicted</th><th>Stage</th><th class="hide-s">Conf.</th></tr>';
+D.demo.forEach((d,i)=>{r+=`<tr class="run" data-i="${i}"><td>#${d.run_id}</td><td>${d.truth}</td><td class="${d.truth===d.pred?'ok':'bad'}">${d.pred}</td><td>${d.stage}</td><td class="hide-s">${d.conf}</td></tr>`;});
+$('runs').innerHTML=r;
+document.querySelectorAll('tr.run').forEach(tr=>tr.onclick=()=>{const d=D.demo[tr.dataset.i],ev=new Set(d.evidence);
+ $('det').innerHTML=`<p class="note">run #${d.run_id}, ${d.n_lines} lines. Highlighted = evidence.</p><pre>${d.excerpt.map(l=>`<span class="${ev.has(l.n)?'hl':''}">${l.n+1}  ${esc(l.t.replace(TS,''))}</span>`).join('\n')}</pre>`;});
+</script></body></html>

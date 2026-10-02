@@ -1,0 +1,20 @@
+[
+ {"label":"infrastructure","name":"runner shutdown","w":1.0,"pattern":"runner has received a shutdown signal|hosted runner lost communication|runner .* lost connection"},
+ {"label":"infrastructure","name":"out of disk","w":1.0,"pattern":"No space left on device|ENOSPC"},
+ {"label":"infrastructure","name":"cancelled/killed","w":0.7,"pattern":"The operation was canceled|exit code 143|exit code 137|Killed$|Out of memory|OOMKilled"},
+ {"label":"infrastructure","name":"network unreachable","w":0.9,"pattern":"Could not resolve host|Temporary failure in name resolution|Connection timed out|TLS handshake timeout|network is unreachable"},
+ {"label":"infrastructure","name":"rate limit / 5xx","w":0.9,"pattern":"429 Too Many Requests|toomanyrequests|rate limit exceeded|503 Service Unavailable|502 Bad Gateway|HttpError: Service Unavailable"},
+ {"label":"infrastructure","name":"action download","w":0.9,"pattern":"Failed to download action|Unable to resolve action|Set up job failed"},
+ {"label":"dependency","name":"npm 404/resolve","w":1.0,"pattern":"npm ERR! code (E404|ERESOLVE|ETARGET)|npm ERR! 404|ERESOLVE unable to resolve|yarn error Couldn't find package|No matching version found"},
+ {"label":"dependency","name":"pip no distribution","w":1.0,"pattern":"Could not find a version that satisfies the requirement|No matching distribution found|ResolutionImpossible|conflicting dependencies"},
+ {"label":"dependency","name":"maven/gradle resolve","w":1.0,"pattern":"Could not resolve (dependencies|all files|com\\.|org\\.)|Cannot resolve [a-z]+\\.[a-z.]+:|Could not find artifact|Failed to collect dependencies"},
+ {"label":"dependency","name":"go/cargo module","w":0.9,"pattern":"reading .*go\\.mod|go: .*@v[0-9.]+: .*(404|410)|failed to select a version for|no matching package named|checksum mismatch|SECURITY ERROR"},
+ {"label":"dependency","name":"lockfile drift","w":0.8,"pattern":"lockfile .*(out of date|needs to be updated)|npm ci can only install packages when|package-lock.json.* not in sync|frozen-lockfile"},
+ {"label":"flaky_test","name":"timeouts in tests","w":0.8,"pattern":"Exceeded timeout of \\d+ ?ms|Async callback was not invoked within|TimeoutError: Waiting for|Test timeout of \\d+ms exceeded|timed out after \\d+"},
+ {"label":"flaky_test","name":"retries/reruns","w":0.9,"pattern":"\\bRERUN\\b|Retry(ing)? \\d/\\d for test|retrying test|flaky|Attempt \\d of \\d failed|failed on attempt"},
+ {"label":"flaky_test","name":"port/connection races","w":0.8,"pattern":"EADDRINUSE|ECONNRESET|socket hang up|ECONNREFUSED 127\\.0\\.0\\.1|Element is not clickable|stale element reference|race condition"},
+ {"label":"real_bug","name":"compile error","w":1.0,"pattern":"error TS\\d+:|error\\[E\\d+\\]|SyntaxError:|cannot find symbol|undefined reference to|error: expected|compilation failed|Compilation error|cannot be resolved to a type"},
+ {"label":"real_bug","name":"assertion failure","w":0.8,"pattern":"AssertionError|assert .* == |Expected: .*Received:|expected .* to (equal|be|deeply equal)|FAILED .*::test_.* - |--- FAIL: |Assertion failed"},
+ {"label":"real_bug","name":"runtime exception","w":0.8,"pattern":"NullPointerException|NameError:|TypeError:|ReferenceError:|panic: runtime error|IndexError:|KeyError:|AttributeError:|Traceback \\(most recent call last\\)"},
+ {"label":"real_bug","name":"lint/type check","w":0.7,"pattern":"\\d+ problems? \\(\\d+ errors?|mypy: .* error|ruff|flake8|eslint.*error|Found \\d+ errors? in"}
+]

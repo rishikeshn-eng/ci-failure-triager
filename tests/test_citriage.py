@@ -60,3 +60,25 @@ def test_gemini_escalation_used_and_bad_output_rejected():
     run = {"lines": L("x", "weird failure", "##[error]Process completed with exit code 1."), "label": "dependency"}
     out = triage(run, None, llm=g)
     assert out["stage"] == "llm" and out["label"] == "dependency"
+
+
+def test_command_echoes_env_blocks_and_job_titles_are_not_evidence():
+    r = rules.classify(L("##[group]Run pnpm install --frozen-lockfile", "  GL_GOVULNCHECK_KEY: ***", "GOVULNCHECK=$(go tool -n)",
+                         "Complete job name: govulncheck", "  echo 'Checksum mismatch of /tmp/x'", "##[error]Process completed with exit code 1."))
+    assert not r["matched"]
+    assert rules.classify(L("    thrown: \"Exceeded timeout of 5000 ms for a test.\""))["label"] == "flaky_test"  # lowercase key is evidence
+
+
+def test_rules_added_from_real_logs():
+    cases = {
+        "dependency": "Dependabot encountered '1' error(s) during execution",
+        "infrastructure": "##[error]Unable to download artifact(s): Artifact not found for name: next-swc",
+        "real_bug": "ruff format..............................................................Failed",
+        "flaky_test": "panic: test timed out after 45m0s",
+    }
+    for label, line in cases.items():
+        assert rules.classify(L("x", line, "##[error]Process completed with exit code 1."))["label"] == label
+
+
+def test_original_rules_file_still_loads_for_comparison():
+    assert len(rules.load_rules(rules.Path(rules.__file__).parent / "rules.json")) >= 31

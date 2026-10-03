@@ -18,11 +18,13 @@ tr.run{cursor:pointer}.note{font-size:12.5px;color:var(--mut)}.ok{color:var(--ac
 </style></head><body><main>
 <h1>CI Failure Triager</h1>
 <p class="sub">Is this red build a flaky test, a dependency problem, infrastructure, or a real bug? And which lines prove it?</p>
-<div class="banner">Evaluated on synthetic GitHub-Actions-style logs with planted labels, not on real GHALogs. See the results below for what that does and doesn't show.</div>
+<div class="banner">Two evaluations: synthetic logs with planted labels (easy, flattering) and 81 real failed-job logs from 27 public repos, labelled by one annotator (hard, the honest one). Not GHALogs.</div>
 <h2>Try it on a log <span class="note">runs in your browser; same rules as the Python pipeline</span></h2>
 <div class="card"><textarea id="log" placeholder="Paste a failed job's log here…"></textarea>
 <p><button id="go">Triage</button> <button id="ex">Load example</button></p><div id="out"></div></div>
-<h2>Results <span class="note">classifiers trained or written against seen families</span></h2>
+<h2>Real CI logs <span class="note">81 failed jobs, 27 public repos, labelled by one annotator</span></h2>
+<div class="card"><table id="rl"></table><p class="note" id="rln"></p></div>
+<h2>Synthetic results <span class="note">classifiers trained or written against seen families</span></h2>
 <div class="card"><table id="res"></table><p class="note" id="rn"></p></div>
 <h2>Sample runs <span class="note">click to see the evidence</span></h2>
 <div class="card"><table id="runs"></table><div id="det"></div></div>
@@ -47,6 +49,12 @@ $('go').onclick=()=>{const lines=$('log').value.split('\n');if(!$('log').value.t
  $('out').innerHTML=`<p><span class="tag">${c.label}</span> ${c.matched?'rule confidence '+pc(c.conf):'<span class="bad">no signature matched; showing the last error-looking lines, label is a fallback guess</span>'}</p>`+
   c.ev.map(e=>`<pre><span class="hl">${esc(lines[e.i].replace(TS,''))}</span>\n<span class="note">line ${e.i+1} · rule: ${esc(e.rule)}</span></pre>`).join('');};
 $('ex').onclick=()=>{$('log').value=`2025-03-01T12:00:01.1Z ##[group]Run npm ci\n2025-03-01T12:00:03.4Z npm WARN deprecated inflight@1.0.6: not supported\n2025-03-01T12:00:09.0Z npm ERR! code E404\n2025-03-01T12:00:09.0Z npm ERR! 404 Not Found - GET https://registry.npmjs.org/@acme/core - Not found\n2025-03-01T12:00:09.1Z ##[error]Process completed with exit code 1.`;$('go').click();};
+if(D.real){const pc1=x=>(x*100).toFixed(1)+'%',E=D.real['extended rules'],O=D.real['original rules'];
+ const row=(n,k,v)=>`<tr><td>${n}</td><td>${pc1(v.forced_acc)}</td><td>${pc1(v.coverage)}</td><td>${pc1(v.precision_when_answering)}</td><td>${pc1(v.abstains_on_other)}</td></tr>`;
+ $('rl').innerHTML='<tr><th>Rules (on the '+E.all.n4+' logs that fit the four classes)</th><th>Accuracy, forced label</th><th>Coverage</th><th>Precision when it answers</th><th>Abstains on the '+E.all.n_other+' "other"</th></tr>'+
+  (O?row('Original rules, never tuned on real logs','',O.all):'')+row('Extended rules, all','',E.all)+row('Extended rules, "test" half*','',E['test half'])+
+  `<tr><td>Always guess real_bug</td><td>${pc1(E.all.majority)}</td><td>100%</td><td>${pc1(E.all.majority)}</td><td>n/a</td></tr>`;
+ $('rln').innerHTML='"Forced label" counts a no-match as real_bug, like the original pipeline. "Other" = policy checks (commit/changelog/PR title), bot and process failures, or too ambiguous to call; the triager should abstain there and does so only about half the time. <b>*Not a clean holdout:</b> I wrote the extra rules after reading all 81 logs, and both halves come from the same repos, so only the original-rules row is untouched by the real data. Evidence lines were audited by hand on the matches: about 9% were not the proof line. The learned model (trained on synthetic logs only) scored 40% on these logs, below always guessing real_bug, and 55% in the full rules-then-model pipeline (original rules).';}
 const names=Object.keys(D.suites);let h='<tr><th>Test set</th><th>Method</th><th>Accuracy</th><th>Macro-F1</th><th class="hide-s">Evidence hit</th></tr>';
 for(const n of names)for(const [m,v] of Object.entries(D.suites[n]))h+=`<tr><td>${n}</td><td>${m}</td><td>${pc(v.accuracy)}</td><td>${v.macro_f1.toFixed(3)}</td><td class="hide-s">${pc(v.evidence_hit)}</td></tr>`;
 $('res').innerHTML=h;

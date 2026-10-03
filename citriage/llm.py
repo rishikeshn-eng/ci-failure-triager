@@ -7,16 +7,40 @@ import urllib.request
 
 from .rules import LABELS
 
+ALLOWED = LABELS + ["other"]
+
 PROMPT = """You triage failed CI runs. Classify the failure as exactly one of:
 flaky_test (passes on rerun: timeouts, races, port clashes, retries),
 dependency (package/module could not be resolved, fetched or locked),
-infrastructure (runner, disk, network, rate limits, cancelled/killed),
-real_bug (the code under test is wrong: compile, assertion, exception, lint).
+infrastructure (runner, disk, network, rate limits, auth/secrets, cancelled/killed),
+real_bug (the code under test is wrong: compile, assertion, exception, lint, formatting),
+other (a policy check such as commit message/changelog/PR title, a bot or process failure, or you cannot tell).
 Reply with JSON only: {{"label": "...", "evidence_line": <index of the line that proves it>}}.
 
 Lines (index: text):
 {lines}
 """
+
+
+
+def _post_json(url: str, key: str, body: dict, tries: int = 5) -> dict:
+    """POST with exponential backoff on 429/5xx/network errors (Gemini rate-limits free keys)."""
+    import time
+    import urllib.error
+    data = json.dumps(body).encode()
+    for i in range(tries):
+        req = urllib.request.Request(url, data=data, method="POST",
+                                     headers={"Content-Type": "application/json", "x-goog-api-key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or i == tries - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if i == tries - 1:
+                raise
+        time.sleep(min(60, 2 ** (i + 1)))
 
 
 class GeminiTriage:
@@ -29,11 +53,7 @@ class GeminiTriage:
         self.calls = self.tokens_in = self.tokens_out = self.rejected = 0
 
     def _http(self, body):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
-                                     headers={"Content-Type": "application/json", "x-goog-api-key": self.key})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.load(r)
+        return _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent", self.key, body)
 
     def classify(self, window_lines: list[str]) -> dict | None:
         prompt = PROMPT.format(lines="\n".join(f"{i}: {l[:300]}" for i, l in enumerate(window_lines)))
@@ -44,7 +64,7 @@ class GeminiTriage:
         self.tokens_in += meta.get("promptTokenCount", len(prompt) // 4)
         try:
             out = json.loads(resp["candidates"][0]["content"]["parts"][0]["text"])
-            assert out["label"] in LABELS
+            assert out["label"] in ALLOWED
             idx = int(out.get("evidence_line", -1))
         except Exception:
             self.rejected += 1

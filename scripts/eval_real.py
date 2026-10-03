@@ -20,8 +20,17 @@ four = ["flaky_test", "dependency", "infrastructure", "real_bug"]
 
 
 def load(r):
-    fn = f"{r['repo'].replace('/', '__')}__{r['job_id']}.log"
-    return open(os.path.join(logs, fn), errors="replace").read().splitlines()
+    """Read the cached log, or fetch it by job id (GitHub keeps logs ~90 days)."""
+    import re, subprocess
+    fn = os.path.join(logs, f"{r['repo'].replace('/', '__')}__{r['job_id']}.log")
+    if not os.path.exists(fn):
+        os.makedirs(logs, exist_ok=True)
+        p = subprocess.run(["gh", "api", "--allow-escape-sequences", f"repos/{r['repo']}/actions/jobs/{r['job_id']}/logs"],
+                           capture_output=True, text=True, timeout=120)
+        if p.returncode:
+            raise SystemExit(f"cannot fetch {r['repo']} job {r['job_id']}: logs expired? {p.stderr[:100]}")
+        open(fn, "w").write(re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", p.stdout))
+    return open(fn, errors="replace").read().splitlines()
 
 
 def run(name, rl):
@@ -50,6 +59,32 @@ def report(name, rows, subset):
     return dict(n=len(rs), n4=len(l4), n_other=len(oth), forced_acc=forced, answer_or_abstain_acc=abst, coverage=cov,
                 precision_when_answering=prec, abstains_on_other=ok_other, overall_acc=allacc, majority=maj[1] / len(l4))
 
+
+if "--gemini" in sys.argv:
+    from citriage.llm import GeminiTriage
+    llm = GeminiTriage()
+    g = {"gemini_only": [], "pipeline": []}
+    for r in lab:
+        lines = load(r)
+        w = ml.error_window(lines).split("\n")
+        v = llm.classify(w)
+        g["gemini_only"].append((r["label"], v["label"] if v else "unknown"))
+        t = triage({"lines": lines}, model, llm)
+        g["pipeline"].append((r["label"], t["label"] if t["stage"] != "unsure" else "unknown", t["stage"]))
+    def summ(pairs):
+        four_ = [(a, b) for a, b, *_ in pairs if a in four]
+        oth = [(a, b) for a, b, *_ in pairs if a == "other"]
+        return {"n4": len(four_), "acc4": sum(a == b for a, b in four_) / len(four_),
+                "answered4": sum(b not in ("unknown", "other") for a, b in four_) / len(four_),
+                "precision_when_answering": sum(a == b for a, b in four_ if b not in ("unknown", "other")) / max(1, sum(b not in ("unknown", "other") for a, b in four_)),
+                "abstains_on_other": sum(b in ("unknown", "other") for a, b in oth) / max(1, len(oth)),
+                "overall_acc": (sum(a == b for a, b in four_) + sum(b in ("unknown", "other") for a, b in oth)) / len(pairs)}
+    res = {k: summ(v) for k, v in g.items()}
+    res["llm"] = {"calls": llm.calls, "rejected": llm.rejected, "tokens_in": llm.tokens_in, "tokens_out": llm.tokens_out, "model": llm.model}
+    res["confusion_gemini_only"] = {f"{a}>{b}": n for (a, b), n in Counter(g["gemini_only"]).items()}
+    json.dump(res, open(os.path.join(os.path.dirname(__file__), "..", "docs", "real_gemini_results.json"), "w"), indent=1)
+    print(json.dumps(res, indent=1))
+    sys.exit(0)
 
 out = {}
 variants = [("extended rules", None)] + ([("original rules", rules.load_rules(old))] if old else [])

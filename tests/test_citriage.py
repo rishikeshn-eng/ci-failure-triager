@@ -82,3 +82,9 @@ def test_rules_added_from_real_logs():
 
 def test_original_rules_file_still_loads_for_comparison():
     assert len(rules.load_rules(rules.Path(rules.__file__).parent / "rules.json")) >= 31
+
+
+def test_gemini_may_answer_other():
+    def other(body):
+        return {"candidates": [{"content": {"parts": [{"text": json.dumps({"label": "other", "evidence_line": 0})}]}}]}
+    assert GeminiTriage(transport=other).classify(["commit message must end with a period"])["label"] == "other"

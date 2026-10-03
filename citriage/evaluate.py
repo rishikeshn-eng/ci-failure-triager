@@ -27,6 +27,7 @@ def score(runs, preds):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=3000)
+    ap.add_argument("--llm", choices=["none", "gemini"], default="none", help="gemini: escalate 'unsure' runs (needs GEMINI_API_KEY)")
     ap.add_argument("--out", default="docs/results.json")
     a = ap.parse_args()
     train = synth.generate(a.n, seed=1, families="seen")
@@ -34,6 +35,10 @@ def main():
     suites = {"seen families": synth.generate(1200, seed=2, families="seen"),
               "novel families": synth.generate(1200, seed=3, families="novel"),
               "all families": synth.generate(1200, seed=4, families="all")}
+    llm = None
+    if a.llm == "gemini":
+        from .llm import GeminiTriage
+        llm = GeminiTriage()
     res = {}
     for name, runs in suites.items():
         row = {}
@@ -41,6 +46,10 @@ def main():
                                               evidence=c["evidence"]) for r in runs])
         row["ml only"] = score(runs, [dict(label=ml.predict(model, r)[0], stage="ml", evidence=rules.classify(r["lines"])["evidence"]) for r in runs])
         row["rules > ml > unsure"] = score(runs, [triage(r, model) for r in runs])
+        if llm is not None:
+            c0 = llm.calls
+            row["rules > ml > gemini"] = score(runs, [triage(r, model, llm) for r in runs])
+            row["rules > ml > gemini"]["llm"] = {"calls": llm.calls - c0, "rejected": llm.rejected, "tokens_in": llm.tokens_in, "tokens_out": llm.tokens_out}
         res[name] = row
         print(name, {k: (round(v["accuracy"], 3), round(v["evidence_hit"], 3)) for k, v in row.items()})
     # ceiling: runs without any planted signature are undecidable
